@@ -57,8 +57,18 @@ export class GatewayServer {
         return json(response, 200, { status: "ok" });
       }
       if (request.method === "GET" && url.pathname === "/") return this.#authenticationPage(response);
+      if (request.method === "POST" && url.pathname === "/") {
+        const body = await readBody(request);
+        const values = new URLSearchParams(body);
+        if (values.has("answer")) return await this.#submitCaptchaValues(values, response);
+        if (values.has("code")) return await this.#submitVerificationValues(values, response);
+        return this.#authenticationPage(response, "The submitted authentication response was incomplete.");
+      }
       if (request.method === "POST" && url.pathname === "/auth/captcha") {
         return await this.#submitCaptcha(request, response);
+      }
+      if (request.method === "POST" && url.pathname === "/auth/verification") {
+        return await this.#submitVerification(request, response);
       }
       if (request.method === "GET" && url.pathname === "/health") {
         const connection = this.state.getConnection();
@@ -127,15 +137,23 @@ export class GatewayServer {
     const challenge = this.captchaProvider?.getCaptchaChallenge() ?? null;
     const connection = this.state.getConnection();
     const content = challenge
-      ? `<p>Eufy needs you to solve this one-time challenge.</p><img src="${captchaDataUri(challenge.image)}" alt="Eufy CAPTCHA"><form method="post" action="auth/captcha"><label for="answer">Characters shown</label><input id="answer" name="answer" required maxlength="32" autocomplete="off" autocapitalize="none"><button type="submit">Connect to Eufy</button></form>`
-      : `<p>No CAPTCHA is waiting. Current connection: <strong>${escapeHtml(connection.state)}</strong>.</p><p>If authentication was just completed, you can close this page.</p>`;
-    return html(response, 200, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Eufy Event Gateway</title><style>body{font:16px system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.25rem;color:#202124}main{border:1px solid #ddd;border-radius:12px;padding:1.5rem}img{display:block;max-width:100%;margin:1rem 0;border:1px solid #ddd}label,input,button{display:block;width:100%;box-sizing:border-box}input,button{font:inherit;padding:.75rem;margin:.4rem 0 1rem}button{cursor:pointer}</style><main><h1>Eufy Event Gateway</h1>${message ? `<p role="status">${escapeHtml(message)}</p>` : ""}${content}</main></html>`);
+      ? `<p>Eufy needs you to solve this one-time challenge.</p><img src="${captchaDataUri(challenge.image)}" alt="Eufy CAPTCHA"><form method="post" action=""><label for="answer">Characters shown</label><input id="answer" name="answer" required maxlength="32" autocomplete="off" autocapitalize="none"><button type="submit">Connect to Eufy</button></form>`
+      : this.captchaProvider?.isVerificationRequired()
+        ? `<p>Eufy sent a six-digit verification code to your account email.</p><form method="post" action=""><label for="code">Verification code</label><input id="code" name="code" required minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code"><button type="submit">Verify and connect</button></form>`
+      : connection.state === "connected"
+        ? `<p><strong>Connected to Eufy.</strong></p><p>The gateway is ready. Return to Home Assistant to review your cameras and entities.</p><a class="button" href="/config/integrations/integration/eufy_event_gateway" target="_top">View Eufy integration</a>`
+        : `<p>No authentication challenge is waiting.</p><p>Current connection: <strong>${escapeHtml(connection.state)}</strong>${connection.detail ? ` — ${escapeHtml(connection.detail)}` : ""}.</p>`;
+    return html(response, 200, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Eufy Event Gateway</title><style>body{font:16px system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.25rem;color:#202124}main{border:1px solid #ddd;border-radius:12px;padding:1.5rem}img{display:block;max-width:100%;margin:1rem 0;border:1px solid #ddd}label,input,button{display:block;width:100%;box-sizing:border-box}input,button,.button{font:inherit;padding:.75rem;margin:.4rem 0 1rem}.button{display:inline-block;width:auto;border-radius:999px;background:#03a9f4;color:#fff;text-decoration:none}button{cursor:pointer}</style><main><h1>Eufy Event Gateway</h1>${message ? `<p role="status">${escapeHtml(message)}</p>` : ""}${content}</main></html>`);
   }
 
   async #submitCaptcha(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    if (!this.captchaProvider) return this.#authenticationPage(response, "CAPTCHA authentication is unavailable.");
     const body = await readBody(request);
-    const answer = new URLSearchParams(body).get("answer")?.trim() ?? "";
+    return this.#submitCaptchaValues(new URLSearchParams(body), response);
+  }
+
+  async #submitCaptchaValues(values: URLSearchParams, response: ServerResponse): Promise<void> {
+    if (!this.captchaProvider) return this.#authenticationPage(response, "CAPTCHA authentication is unavailable.");
+    const answer = values.get("answer")?.trim() ?? "";
     if (!answer || answer.length > 32) return this.#authenticationPage(response, "Enter the characters shown in the image.");
     try {
       await this.captchaProvider.submitCaptcha(answer);
@@ -146,6 +164,23 @@ export class GatewayServer {
       );
     } catch (error) {
       return this.#authenticationPage(response, `Eufy did not accept the answer: ${safeError(error)}`);
+    }
+  }
+
+  async #submitVerification(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = await readBody(request);
+    return this.#submitVerificationValues(new URLSearchParams(body), response);
+  }
+
+  async #submitVerificationValues(values: URLSearchParams, response: ServerResponse): Promise<void> {
+    if (!this.captchaProvider) return this.#authenticationPage(response, "Verification is unavailable.");
+    const code = values.get("code")?.trim() ?? "";
+    if (!/^\d{6}$/.test(code)) return this.#authenticationPage(response, "Enter the six-digit code Eufy sent you.");
+    try {
+      await this.captchaProvider.submitVerification(code);
+      return this.#authenticationPage(response, "Verification accepted.");
+    } catch (error) {
+      return this.#authenticationPage(response, `Eufy did not accept the verification code: ${safeError(error)}`);
     }
   }
 
@@ -266,7 +301,7 @@ export function captchaDataUri(image: string): string {
 export function captchaResultMessage(hasNextChallenge: boolean): string {
   return hasNextChallenge
     ? "Eufy did not accept that answer. Try the new challenge below."
-    : "CAPTCHA accepted. Eufy is connecting; you can close this page.";
+    : "CAPTCHA accepted.";
 }
 
 function escapeHtml(value: string): string {

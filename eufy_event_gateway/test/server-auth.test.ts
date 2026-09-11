@@ -28,4 +28,5 @@ test("renders Eufy CAPTCHA image data without allowing attribute injection", () 
 test("keeps CAPTCHA results in the app with clear retry and success messages", () => {
   assert.match(captchaResultMessage(true), /Try the new challenge/);
   assert.match(captchaResultMessage(false), /accepted/);
+  assert.doesNotMatch(captchaResultMessage(false), /close this page/i);
 });

@@ -23,12 +23,12 @@ For every discovered camera, the integration creates:
 - a person binary sensor;
 - a last-recognized-person sensor, including the detection type and timestamp.
 
-The integration also defines two Home Assistant actions for future streaming support:
+The integration also defines two Home Assistant actions for on-demand streaming:
 
 - `eufy_event_gateway.capture_snapshot` requests a fresh frame from a camera with a supported live transport;
 - `eufy_event_gateway.record_clip` records from a camera with a supported live transport.
 
-The first-party Mega provider in v0.1.11 does not yet expose a live transport, so these actions report that the selected camera does not support streaming instead of invoking an obsolete Eufy API.
+Live viewing uses Eufy's native Thing MQTT/P2P signalling and relay media path. The gateway implements that path directly; it does not use `eufy-security-client` or its obsolete APIs.
 
 The actions work in Home Assistant automations and through Node-RED's Home Assistant Action node. An importable example is included in [`examples/node-red-gate-and-motion.json`](examples/node-red-gate-and-motion.json).
 
@@ -49,7 +49,8 @@ You will need:
 
 - Home Assistant OS or Home Assistant Supervised for the app installation below;
 - HACS, or File Editor/SSH for the manual integration method;
-- the guest account username, password, and two-letter account country code.
+- the guest account username, password, and two-letter account country code;
+- the Eufy account credentials; live viewing does not require the Web Portal Access PIN.
 
 ## Install the integration with HACS
 
@@ -74,7 +75,7 @@ If you do not use HACS, copy `custom_components/eufy_event_gateway` into `/confi
 
 If the log says Eufy requested email verification, enter the temporary code in **Verification code**, restart the app once, and remove the code after it connects. Never post credentials, verification codes, or app logs containing private account details in a GitHub issue.
 
-If Eufy requests a CAPTCHA, open the app's **Web UI**, enter the characters shown, and submit the form. The challenge and answer are kept in memory only and are not written to the app configuration or logs.
+Mega events and web live viewing use separate Eufy sessions. If Eufy requests a CAPTCHA or sends a six-digit email code for either session, open the app's **Web UI** and complete the prompt there. The gateway stores the resulting sessions so routine app upgrades and restarts do not repeat authentication. Challenge answers and email codes are kept in memory only and are not written to the app configuration or logs.
 
 ## Connect it to Home Assistant
 
@@ -114,6 +115,7 @@ Recordings are assembled by the gateway with a hard stream-start timeout and dur
 
 - Motion and person notifications update their Home Assistant sensors without waking a stream.
 - The last valid event image remains visible while the camera sleeps.
+- Opening a camera starts its live WebRTC session on demand and stops it after the configured limit.
 - A familiar-person name appears only when HomeBase supplies an explicit identity. Generic detections such as `Someone` remain unknown.
 - Powered cameras with their own RTSP feed can continue using that feed for video while this integration supplies Eufy/HomeBase detection entities.
 
@@ -148,8 +150,8 @@ Validated inventory currently includes HomeBase 3, three EufyCam 2C cameras, a v
 
 - Eufy's cloud, push, and HomeBase protocols are undocumented and can change without notice.
 - Familiar-person names depend on HomeBase recognition and are not present in every Eufy event.
-- Live video, fresh-snapshot requests, and clip recording are not available through the first-party Mega provider yet.
-- The app handles CAPTCHA challenges in its Web UI if Eufy requires one, but a valid session is normally reused across upgrades and restarts.
+- Live video uses Eufy's native camera transport. Eufy may require account verification the first time that session is created.
+- The app handles authentication challenges in its Web UI, then reuses valid Mega and web sessions across upgrades and restarts.
 - The app currently publishes source builds for `amd64` and `aarch64`; installation may take several minutes.
 
 ## Privacy and security

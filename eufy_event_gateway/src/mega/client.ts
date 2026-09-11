@@ -15,7 +15,7 @@ import {
   sharedSigningKey,
 } from "./crypto.js";
 import { MegaSessionStore } from "./session-store.js";
-import type { MegaAuthResult, MegaCaptcha, MegaIdentity, MegaInventory, MegaResult, MegaSession } from "./types.js";
+import type { MegaAuthResult, MegaCaptcha, MegaIdentity, MegaInventory, MegaMqttInfo, MegaResult, MegaSession } from "./types.js";
 
 const CAPTCHA_REQUIRED = new Set([100032, 100033]);
 const VERIFICATION_REQUIRED = 26052;
@@ -124,6 +124,29 @@ export class MegaClient {
       devices: value.devices.filter(isMegaDevice),
       groups: Array.isArray(value.groups) ? value.groups : [],
     };
+  }
+
+  /**
+   * Fetch the mutual-TLS credentials used by the native app's Thing MQTT
+   * transport. This is deliberately separate from the web portal session:
+   * native P2P signalling does not use the expiring Web Portal PIN.
+   */
+  async mqttInfo(): Promise<MegaMqttInfo> {
+    this.#requireAuthentication();
+    const result = await this.#call("openapi", "/app/devicemanage/get_user_mqtt_info", {});
+    const value = this.#decodeResult(result, this.#clusterHost("openapi"));
+    if (!isRecord(value)) throw new Error("Mega returned invalid MQTT credentials");
+    const endpointAddress = stringValue(value.endpoint_addr);
+    const thingName = stringValue(value.thing_name);
+    const userId = stringValue(value.user_id);
+    const appName = stringValue(value.app_name);
+    const certificatePem = stringValue(value.certificate_pem);
+    const privateKey = stringValue(value.private_key);
+    const rootCaPem = stringValue(value.aws_root_ca1_pem);
+    if (!endpointAddress || !thingName || !userId || !appName || !certificatePem || !privateKey || !rootCaPem) {
+      throw new Error("Mega returned incomplete MQTT credentials");
+    }
+    return { endpointAddress, thingName, userId, appName, certificatePem, privateKey, rootCaPem };
   }
 
   async registerPushToken(token: string): Promise<void> {

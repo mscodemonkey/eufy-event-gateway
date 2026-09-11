@@ -28,5 +28,7 @@ export interface CaptchaChallenge {
 
 export interface CaptchaProvider {
   getCaptchaChallenge(): CaptchaChallenge | null;
+  isVerificationRequired(): boolean;
   submitCaptcha(answer: string): Promise<void>;
+  submitVerification(code: string): Promise<void>;
 }

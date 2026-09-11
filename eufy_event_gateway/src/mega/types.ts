@@ -57,3 +57,14 @@ export interface MegaAuthResult {
   readonly state: "authenticated" | "verification-required" | "captcha-required";
   readonly captcha?: MegaCaptcha;
 }
+
+/** Credentials returned by Mega for the first-party Thing MQTT transport. */
+export interface MegaMqttInfo {
+  readonly endpointAddress: string;
+  readonly thingName: string;
+  readonly userId: string;
+  readonly appName: string;
+  readonly certificatePem: string;
+  readonly privateKey: string;
+  readonly rootCaPem: string;
+}

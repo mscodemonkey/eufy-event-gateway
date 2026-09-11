@@ -39,3 +39,37 @@ test("uses the supported Mega inventory request and decrypts its response", asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("fetches native MQTT credentials through the encrypted Mega API", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mega-mqtt-"));
+  const sharedKey = "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100";
+  const host = "app-openapi-eu-pr.eufy.com";
+  try {
+    await writeFile(join(directory, "mega-session.json"), JSON.stringify({
+      version: 1, country: "au", openUdid: "device", loginHash: loginHash("device", "user@example.invalid", "password"),
+      authToken: "token", tokenExpiresAt: 2_000_000_000, userId: "user", megaDomain: "mega-eu-pr.eufy.com",
+      domains: {}, identities: { [host]: { keyIdent: "identity", sharedKey, clientPublicKey: "public" } },
+    }));
+    const requests: string[] = [];
+    const fakeFetch: typeof fetch = async (input, _init) => {
+      requests.push(String(input));
+      const data = encryptEnvelope(JSON.stringify({
+        endpoint_addr: "thing.example.test:8883", thing_name: "thing", user_id: "user", app_name: "eufy_security",
+        certificate_pem: "cert", private_key: "key", aws_root_ca1_pem: "root", pkcs12: "unused",
+      }), sharedAesKey(sharedKey), Buffer.alloc(16, 2));
+      return new Response(JSON.stringify({ code: 0, data }), { status: 200 });
+    };
+    const client = new MegaClient({
+      email: "user@example.invalid", password: "password", country: "AU", persistentDirectory: directory,
+      minimumRequestIntervalMs: 0, now: () => 1_700_000_000_000, fetch: fakeFetch,
+    });
+    assert.deepEqual(await client.connect(), { state: "authenticated" });
+    assert.deepEqual(await client.mqttInfo(), {
+      endpointAddress: "thing.example.test:8883", thingName: "thing", userId: "user", appName: "eufy_security",
+      certificatePem: "cert", privateKey: "key", rootCaPem: "root",
+    });
+    assert.equal(requests.at(-1), "https://app-openapi-eu-pr.eufy.com/app/devicemanage/get_user_mqtt_info");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

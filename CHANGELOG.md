@@ -7,6 +7,9 @@
 - Register and normalize current Eufy push notifications without the `eufy-security-client` runtime dependency.
 - Decode and retain event snapshots using the gateway's own image decoder.
 - Reuse an existing authenticated Mega session during the one-time upgrade, avoiding unnecessary CAPTCHA authentication.
+- Add a first-party client for Eufy's current web authentication and WebRTC signalling services.
+- Restore on-demand live viewing, fresh snapshots, and clip recording for the discovered cameras without `eufy-security-client`.
+- Persist the separate web session and handle its CAPTCHA or email verification prompt inside the app Web UI.
 
 ## 0.1.10
 

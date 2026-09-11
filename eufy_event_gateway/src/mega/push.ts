@@ -54,6 +54,7 @@ export class MegaPushReceiver {
       ...(this.#state.credentials ? { credentials: this.#state.credentials } : {}),
       persistentIds: this.#state.persistentIds,
     });
+    guardReceiverDestroy(receiver);
     this.#receiver = receiver;
     receiver.onCredentialsChanged(({ newCredentials }) => {
       this.#state = { ...this.#state, credentials: newCredentials };
@@ -76,6 +77,18 @@ export class MegaPushReceiver {
     this.#receiver?.destroy();
     this.#receiver = null;
   }
+}
+
+function guardReceiverDestroy(receiver: PushReceiver): void {
+  const destroy = receiver.destroy.bind(receiver);
+  receiver.destroy = () => {
+    // The dependency rejects its private readiness promise during every socket
+    // retry but does not consume that rejection. Guard both promises it owns
+    // across destroy() so a transient Google MCS outage cannot kill the app.
+    void receiver.whenReady.catch(() => undefined);
+    destroy();
+    void receiver.whenReady.catch(() => undefined);
+  };
 }
 
 export function parsePushEvent(data: unknown): MegaPushEvent | null {

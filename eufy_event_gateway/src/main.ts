@@ -29,6 +29,7 @@ if (config.provider === "simulated") {
     username: config.eufy.username,
     password: config.eufy.password,
     country: config.eufy.country,
+    webPortalPin: config.eufy.webPortalPin,
     persistentDirectory: join(config.dataDirectory, "eufy-client"),
     maxStreamSeconds: config.maxStreamSeconds,
     ...(config.eufy.verifyCode ? { verifyCode: config.eufy.verifyCode } : {}),

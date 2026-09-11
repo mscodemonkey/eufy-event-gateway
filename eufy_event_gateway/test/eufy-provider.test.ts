@@ -35,8 +35,17 @@ test("parses only whitelisted Mega inventory fields and de-duplicates serials", 
   assert.deepEqual(result, [{
     serial: "T8113ABC", name: "Path", model: "T8113-Z", parentSerial: "T8030ABC",
     deviceType: 8, category: "eufy_security", channel: 3, p2pDid: "ABC-123456-XYZ",
+    adminUserId: null,
   }]);
   assert.equal(JSON.stringify(result).includes("must-not-escape"), false);
+});
+
+test("inherits the HomeBase live-view account identity for child cameras", () => {
+  const devices = parseMegaInventory({ devices: [
+    { device_sn: "camera", parent_sn: "homebase", device_type: 8, category: "eufy_security" },
+    { device_sn: "homebase", device_type: 18, category: "eufy_security", member: { admin_user_id: "owner" } },
+  ] });
+  assert.equal(devices.find(({ serial }) => serial === "camera")?.adminUserId, "owner");
 });
 
 test("reports all first-party Mega camera types and excludes the HomeBase", () => {

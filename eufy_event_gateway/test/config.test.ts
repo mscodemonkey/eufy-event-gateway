@@ -34,3 +34,11 @@ test("passes through a temporary Eufy email verification code", () => {
   });
   assert.equal(config.eufy.verifyCode, "123456");
 });
+
+test("normalizes the Eufy Web Portal access PIN", () => {
+  const config = loadConfig({
+    EUFY_GATEWAY_PROVIDER: "simulated",
+    EUFY_WEB_PORTAL_PIN: " 246810 ",
+  });
+  assert.equal(config.eufy.webPortalPin, "246810");
+});

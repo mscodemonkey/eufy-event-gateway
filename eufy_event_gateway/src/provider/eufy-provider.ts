@@ -2,14 +2,19 @@ import { join } from "node:path";
 
 import type { InventoryDiagnostic } from "../domain/types.js";
 import { MegaClient } from "../mega/client.js";
+import { ThingGatewayClient, type ThingAccountSession, type ThingDevice } from "../mega/thing-gateway.js";
+import { WebClient } from "../mega/web-client.js";
 import { decodeEventImage, isJpeg } from "../mega/image.js";
 import { MegaPushReceiver, type MegaPushEvent } from "../mega/push.js";
+import { WebRtcStream } from "../stream/web-rtc-stream.js";
+import { NativeStreamSession } from "../stream/native-stream-session.js";
 import type { CameraProvider, CaptchaChallenge, CaptchaProvider, ProviderEvents } from "./provider.js";
 
 export interface EufyProviderConfig {
   readonly username: string;
   readonly password: string;
   readonly country: string;
+  readonly webPortalPin: string | null;
   readonly persistentDirectory: string;
   readonly verifyCode?: string;
   readonly maxStreamSeconds: number;
@@ -24,18 +29,34 @@ export interface MegaInventoryDevice {
   readonly category: string | null;
   readonly channel: number | null;
   readonly p2pDid: string | null;
+  readonly adminUserId: string | null;
 }
 
 export class EufyProvider implements CameraProvider, CaptchaProvider {
   readonly #client: MegaClient;
+  readonly #thingGateway: ThingGatewayClient;
+  readonly #webClient: WebClient;
   readonly #devices = new Map<string, MegaInventoryDevice>();
+  readonly #streams = new Map<string, WebRtcStream>();
+  readonly #nativeStreams = new Map<string, NativeStreamSession>();
+  #thingAccount: ThingAccountSession | null = null;
+  #thingDevices = new Map<string, ThingDevice>();
   readonly #pushSnapshotQueues = new Map<string, Promise<void>>();
   #push: MegaPushReceiver | null = null;
   #events: ProviderEvents | null = null;
   #captchaChallenge: CaptchaChallenge | null = null;
+  #captchaTarget: "mega" | "web" | null = null;
+  #verificationRequired = false;
 
   constructor(private readonly config: EufyProviderConfig) {
     this.#client = new MegaClient({
+      email: config.username,
+      password: config.password,
+      country: config.country,
+      persistentDirectory: config.persistentDirectory,
+    });
+    this.#thingGateway = new ThingGatewayClient({ region: config.country.toLowerCase() === "au" ? "we" : config.country.toLowerCase() });
+    this.#webClient = new WebClient({
       email: config.username,
       password: config.password,
       country: config.country,
@@ -48,6 +69,7 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     const auth = await this.#client.connect(this.config.verifyCode);
     if (auth.state !== "authenticated") {
       this.#captchaChallenge = auth.captcha ?? null;
+      this.#captchaTarget = auth.state === "captcha-required" ? "mega" : null;
       const detail = auth.state === "captcha-required"
         ? "Open the add-on web interface to complete Eufy's CAPTCHA"
         : "Eufy requested an email verification code; add it to the add-on configuration and restart";
@@ -60,14 +82,54 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
   async startStream(serial: string): Promise<void> {
     const device = this.#devices.get(serial);
     if (!device || !isSupportedMegaCamera(device)) throw new Error(`Unknown Eufy camera: ${serial}`);
-    throw new Error("Live viewing is not yet available through the first-party Mega transport");
+    const nativeDevice = this.#thingDevices.get(serial);
+    if (nativeDevice && this.#thingAccount) {
+      this.#nativeStreams.get(serial)?.close();
+      const stream = new NativeStreamSession({ gateway: this.#thingGateway, account: this.#thingAccount, deviceId: nativeDevice.deviceId, localKey: nativeDevice.localKey, maxSeconds: this.config.maxStreamSeconds });
+      this.#nativeStreams.set(serial, stream);
+      await stream.start();
+      this.#events?.streamStarted(serial, stream.output);
+      stream.output.once("close", () => { if (this.#nativeStreams.get(serial) !== stream) return; this.#nativeStreams.delete(serial); this.#events?.streamStopped(serial); });
+      return;
+    }
+    if (!this.config.webPortalPin || !this.#webClient.isAuthenticated) {
+      throw new Error("Eufy Web Portal authentication and its access PIN are required for live viewing");
+    }
+    if (device.channel === null || !device.parentSerial || !device.adminUserId) {
+      throw new Error("Eufy did not provide the live-view identity for this camera");
+    }
+    this.#streams.get(serial)?.close();
+    const stream = new WebRtcStream(this.#webClient, this.config.webPortalPin, {
+      serial: device.serial,
+      stationSerial: device.parentSerial,
+      channel: device.channel,
+      adminUserId: device.adminUserId,
+    }, this.config.maxStreamSeconds);
+    this.#streams.set(serial, stream);
+    await stream.start();
+    this.#events?.streamStarted(serial, stream.output);
+    stream.output.once("close", () => {
+      if (this.#streams.get(serial) !== stream) return;
+      this.#streams.delete(serial);
+      this.#events?.streamStopped(serial);
+    });
   }
 
-  async stopStream(_serial: string): Promise<void> {}
+  async stopStream(serial: string): Promise<void> {
+    this.#nativeStreams.get(serial)?.close();
+    this.#nativeStreams.delete(serial);
+    this.#streams.get(serial)?.close();
+    this.#streams.delete(serial);
+    this.#events?.streamStopped(serial);
+  }
 
   async close(): Promise<void> {
     this.#push?.close();
     this.#push = null;
+    for (const stream of this.#streams.values()) stream.close();
+    this.#streams.clear();
+    for (const stream of this.#nativeStreams.values()) stream.close();
+    this.#nativeStreams.clear();
     this.#events = null;
   }
 
@@ -75,19 +137,37 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
     return this.#captchaChallenge;
   }
 
+  isVerificationRequired(): boolean {
+    return this.#verificationRequired;
+  }
+
   async submitCaptcha(answer: string): Promise<void> {
     if (!this.#captchaChallenge || !this.#events) throw new Error("No Eufy CAPTCHA is waiting for an answer");
-    const result = await this.#client.connect(undefined, answer);
+    const result = this.#captchaTarget === "web"
+      ? await this.#webClient.connect(answer)
+      : await this.#client.connect(undefined, answer);
     if (result.state === "captcha-required") {
       this.#captchaChallenge = result.captcha ?? null;
       throw new Error("Eufy did not accept the CAPTCHA answer");
     }
     if (result.state === "verification-required") {
       this.#captchaChallenge = null;
-      this.#events.connection("authentication-required", "Eufy requested an email verification code; add it to the add-on configuration and restart");
+      this.#captchaTarget = null;
+      this.#verificationRequired = true;
+      this.#events.connection("authentication-required", "Eufy sent a six-digit verification code; enter it in the add-on web interface");
       return;
     }
     this.#captchaChallenge = null;
+    this.#captchaTarget = null;
+    this.#verificationRequired = false;
+    await this.#completeStartup(this.#events);
+  }
+
+  async submitVerification(code: string): Promise<void> {
+    if (!this.#verificationRequired || !this.#events) throw new Error("No Eufy verification is waiting for a code");
+    const result = await this.#webClient.submitVerification(code);
+    if (result.state !== "authenticated") throw new Error("Eufy did not accept the verification code");
+    this.#verificationRequired = false;
     await this.#completeStartup(this.#events);
   }
 
@@ -103,10 +183,24 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
         name: device.name,
         model: device.model,
         stationSerial: device.parentSerial,
-        streamSupported: false,
+        streamSupported: Boolean(
+          this.config.webPortalPin && this.#webClient.isAuthenticated &&
+          device.channel !== null && device.parentSerial && device.adminUserId,
+        ),
       });
     }
     events.inventory(inventoryDiagnostics(devices));
+
+    this.#thingAccount = null;
+    this.#thingDevices.clear();
+    try {
+      this.#thingAccount = await this.#thingGateway.login(this.config.username, this.config.password, this.config.country);
+      for (const device of await this.#thingGateway.listDevices(this.#thingAccount)) this.#thingDevices.set(device.deviceId, device);
+      const nativeCameraCount = devices.filter((device) => isSupportedMegaCamera(device) && this.#thingDevices.has(device.serial)).length;
+      if (nativeCameraCount > 0) events.connection("connected", `Native camera transport ready (${nativeCameraCount} cameras)`);
+    } catch (error) {
+      console.warn(`Native Thing camera transport unavailable: ${safeError(error)}`);
+    }
 
     this.#push?.close();
     this.#push = new MegaPushReceiver(
@@ -115,6 +209,40 @@ export class EufyProvider implements CameraProvider, CaptchaProvider {
       (event) => this.#handlePush(events, event),
     );
     await this.#push.start();
+    if (devices.some((device) => isSupportedMegaCamera(device) && this.#thingDevices.has(device.serial))) {
+      for (const device of devices) {
+        if (!isSupportedMegaCamera(device)) continue;
+        events.camera({ serial: device.serial, name: device.name, model: device.model, stationSerial: device.parentSerial, streamSupported: this.#thingDevices.has(device.serial) });
+      }
+      events.connection("connected", null);
+      return;
+    }
+    if (!this.config.webPortalPin) {
+      events.connection("connected", "Live viewing is disabled until a Web Portal Access PIN is configured");
+      return;
+    }
+    const webAuth = await this.#webClient.connect();
+    if (webAuth.state === "captcha-required") {
+      this.#captchaChallenge = webAuth.captcha ?? null;
+      this.#captchaTarget = "web";
+      events.connection("authentication-required", "Open the add-on web interface to complete Eufy's live-view CAPTCHA");
+      return;
+    }
+    if (webAuth.state === "verification-required") {
+      this.#verificationRequired = true;
+      events.connection("authentication-required", "Eufy sent a six-digit verification code; enter it in the add-on web interface");
+      return;
+    }
+    for (const device of devices) {
+      if (!isSupportedMegaCamera(device)) continue;
+      events.camera({
+        serial: device.serial,
+        name: device.name,
+        model: device.model,
+        stationSerial: device.parentSerial,
+        streamSupported: device.channel !== null && Boolean(device.parentSerial && device.adminUserId),
+      });
+    }
     events.connection("connected", null);
   }
 
@@ -190,9 +318,15 @@ export function parseMegaInventory(response: unknown): MegaInventoryDevice[] {
       category: safeValue(value.category, 100),
       channel: integer(value.device_channel) ?? integer(value.channel),
       p2pDid: safeValue(value.p2p_did, 128),
+      adminUserId: isRecord(value.member) ? safeValue(value.member.admin_user_id, 128) : null,
     });
   }
-  return devices;
+  const adminUserIds = new Map(
+    devices.filter((device) => device.adminUserId).map((device) => [device.serial, device.adminUserId!]),
+  );
+  return devices.map((device) => device.adminUserId || !device.parentSerial
+    ? device
+    : { ...device, adminUserId: adminUserIds.get(device.parentSerial) ?? null });
 }
 
 export function inventoryDiagnostics(devices: readonly MegaInventoryDevice[]): InventoryDiagnostic[] {
