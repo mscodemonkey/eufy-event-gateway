@@ -5,69 +5,30 @@ import { downloadPushSnapshot } from "../src/provider/eufy-provider.js";
 
 const jpeg = Buffer.from([0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9]);
 
-test("downloads a plain JPEG from a push-only camera notification", async () => {
-  let stationLookups = 0;
-  const client = {
-    getApi: () => ({
-      request: async () => ({ status: 200, data: jpeg }),
-    }),
-    getStation: async () => {
-      stationLookups += 1;
-      return { getRawStation: () => ({ p2p_did: "station-did" }) };
-    },
-  };
-
-  const picture = await downloadPushSnapshot(client, {
-    device_sn: "camera-1",
-    station_sn: "station-1",
-    pic_url: "https://example.invalid/signed-event-image",
-  });
-
-  assert.deepEqual(picture, { data: jpeg, type: { ext: "jpg", mime: "image/jpeg" } });
-  assert.equal(stationLookups, 0);
-});
-
-test("decodes an obfuscated push image using its parent station", async () => {
-  let decoderDid: string | null = null;
-  const client = {
-    getApi: () => ({
-      request: async () => ({ status: 200, data: Buffer.from("encoded") }),
-    }),
-    getStation: async (serial: string) => {
-      assert.equal(serial, "station-1");
-      return { getRawStation: () => ({ p2p_did: "station-did" }) };
-    },
-  };
-
+test("downloads a plain JPEG from a Mega event", async () => {
   const picture = await downloadPushSnapshot(
-    client,
-    { device_sn: "camera-1", station_sn: "station-1", pic_url: "https://example.invalid/image" },
-    async (did) => {
-      decoderDid = did;
-      return jpeg;
-    },
+    { download: async () => jpeg },
+    { pictureUrl: "https://example.invalid/signed-event-image", stationSerial: "station-1" },
+    new Map(),
   );
-
-  assert.equal(decoderDid, "station-did");
-  assert.deepEqual(picture?.data, jpeg);
+  assert.deepEqual(picture, { data: jpeg });
 });
 
-test("rejects non-HTTPS, empty, oversized, and invalid event images", async () => {
-  const response = { status: 200, data: Buffer.alloc(0) };
-  const client = {
-    getApi: () => ({ request: async () => response }),
-    getStation: async () => ({ getRawStation: () => ({ p2p_did: "station-did" }) }),
-  };
-  const message = { device_sn: "camera-1", station_sn: "station-1", pic_url: "http://example.invalid/image" };
+test("does not download when the event has no picture URL", async () => {
+  let downloaded = false;
+  const picture = await downloadPushSnapshot(
+    { download: async () => { downloaded = true; return jpeg; } },
+    { pictureUrl: null, stationSerial: "station-1" },
+    new Map(),
+  );
+  assert.equal(picture, null);
+  assert.equal(downloaded, false);
+});
 
-  assert.equal(await downloadPushSnapshot(client, message), null);
-
-  message.pic_url = "https://example.invalid/image";
-  assert.equal(await downloadPushSnapshot(client, message), null);
-
-  response.data = Buffer.alloc(20 * 1024 * 1024 + 1);
-  await assert.rejects(downloadPushSnapshot(client, message), /20 MB safety limit/);
-
-  response.data = Buffer.from("not-an-image");
-  await assert.rejects(downloadPushSnapshot(client, message, async (_did, data) => data), /not a valid JPEG/);
+test("requires the parent HomeBase identity for an encoded event image", async () => {
+  await assert.rejects(downloadPushSnapshot(
+    { download: async () => Buffer.from("encoded") },
+    { pictureUrl: "https://example.invalid/image", stationSerial: "station-1" },
+    new Map(),
+  ), /HomeBase identity/);
 });

@@ -9,7 +9,7 @@
 
 Reliable, event-first Home Assistant support for Eufy cameras that do not provide a permanent RTSP stream.
 
-Battery cameras stay asleep until they are needed. Motion and person detections arrive as Home Assistant entities, HomeBase 3 familiar-person names are exposed when Eufy actually supplies one, and the last good frame remains visible while the camera is idle. Opening live view or asking for a snapshot or clip wakes only the selected camera and releases it afterwards.
+Motion and person detections arrive as Home Assistant entities, HomeBase 3 familiar-person names are exposed when Eufy actually supplies one, and the last good event image remains visible while the camera is idle.
 
 > [!IMPORTANT]
 > This is an early community project built against real EufyCam 2C, HomeBase 3, and Doorbell hardware. It is not affiliated with Anker or Eufy and should not be your only security system.
@@ -18,15 +18,17 @@ Battery cameras stay asleep until they are needed. Motion and person detections 
 
 For every discovered camera, the integration creates:
 
-- a camera entity with a retained idle image and on-demand live video where the hardware supports it;
+- a camera entity with a retained event image;
 - a motion binary sensor;
 - a person binary sensor;
 - a last-recognized-person sensor, including the detection type and timestamp.
 
-It also provides two Home Assistant actions:
+The integration also defines two Home Assistant actions for future streaming support:
 
-- `eufy_event_gateway.capture_snapshot` wakes a supported camera, waits for a fresh frame, and saves a JPEG;
-- `eufy_event_gateway.record_clip` records an MP4 for a chosen duration from 1 to 120 seconds.
+- `eufy_event_gateway.capture_snapshot` requests a fresh frame from a camera with a supported live transport;
+- `eufy_event_gateway.record_clip` records from a camera with a supported live transport.
+
+The first-party Mega provider in v0.1.11 does not yet expose a live transport, so these actions report that the selected camera does not support streaming instead of invoking an obsolete Eufy API.
 
 The actions work in Home Assistant automations and through Node-RED's Home Assistant Action node. An importable example is included in [`examples/node-red-gate-and-motion.json`](examples/node-red-gate-and-motion.json).
 
@@ -34,7 +36,7 @@ The actions work in Home Assistant automations and through Node-RED's Home Assis
 
 This repository contains two parts, and Home Assistant needs both:
 
-1. **Eufy Event Gateway app** — signs in to Eufy, receives push/HomeBase events, controls P2P streams, and retains snapshots.
+1. **Eufy Event Gateway app** — signs in through Eufy's current Mega service, receives push/HomeBase events, and retains snapshots.
 2. **Eufy Event Gateway integration** — turns the gateway data into normal Home Assistant camera, binary-sensor, and sensor entities.
 
 On Home Assistant OS or Supervised, the app generates its own private API token and passes it directly to the integration through Supervisor discovery. The gateway port is closed to the LAN by default.
@@ -110,10 +112,8 @@ Recordings are assembled by the gateway with a hard stream-start timeout and dur
 
 ## Camera behaviour
 
-- Motion alone does not start a livestream.
-- A battery camera waking on demand is expected to take a few seconds.
-- Closing the final viewer releases a gateway-owned P2P stream after a short grace period.
-- The last valid event image or decoded live frame remains visible while the camera sleeps.
+- Motion and person notifications update their Home Assistant sensors without waking a stream.
+- The last valid event image remains visible while the camera sleeps.
 - A familiar-person name appears only when HomeBase supplies an explicit identity. Generic detections such as `Someone` remain unknown.
 - Powered cameras with their own RTSP feed can continue using that feed for video while this integration supplies Eufy/HomeBase detection entities.
 
@@ -144,12 +144,12 @@ EUFY_GATEWAY_PROVIDER=simulated npm run dev
 
 ## Supported and known limitations
 
-Validated hardware currently includes HomeBase 3, EufyCam 2C, a Eufy video doorbell, and detection events from a powered T817L camera.
+Validated inventory currently includes HomeBase 3, three EufyCam 2C cameras, a video doorbell, and a powered T817L camera.
 
-- Eufy's cloud, push, HomeBase, and P2P protocols are undocumented and can change without notice.
+- Eufy's cloud, push, and HomeBase protocols are undocumented and can change without notice.
 - Familiar-person names depend on HomeBase recognition and are not present in every Eufy event.
-- Mega inventory fills gaps in Eufy's older device list, but Mega-only powered cameras are not treated as P2P-capable unless the upstream client provides a controllable device.
-- CAPTCHA challenges are not currently handled by the app UI.
+- Live video, fresh-snapshot requests, and clip recording are not available through the first-party Mega provider yet.
+- The app handles CAPTCHA challenges in its Web UI if Eufy requires one, but a valid session is normally reused across upgrades and restarts.
 - The app currently publishes source builds for `amd64` and `aarch64`; installation may take several minutes.
 
 ## Privacy and security

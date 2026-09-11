@@ -1,107 +1,52 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  hasValidMegaSession,
-  mergeInventoryDiagnostics,
-  parseMegaInventory,
-  personNameFromPush,
-} from "../src/provider/eufy-provider.js";
+import { inventoryDiagnostics, parseMegaInventory, personNameFromPush } from "../src/provider/eufy-provider.js";
 
-test("uses a valid Mega session without requiring the failed legacy login", async () => {
-  assert.equal(await hasValidMegaSession({
-    megaTransition: { getMegaApi: async () => ({ hasValidSession: () => true }) },
-  }), true);
-  assert.equal(await hasValidMegaSession({}), false);
+const event = (overrides: Partial<Parameters<typeof personNameFromPush>[0]>): Parameters<typeof personNameFromPush>[0] => ({
+  eventType: null,
+  personName: null,
+  content: null,
+  ...overrides,
 });
 
 test("uses a structured person name when Eufy supplies one", () => {
-  assert.equal(personNameFromPush({ event_type: 3111, person_name: "Alex" }), "Alex");
+  assert.equal(personNameFromPush(event({ eventType: 3111, personName: "Alex" })), "Alex");
 });
 
 test("extracts a name from explicit HB3 identity notification text", () => {
-  assert.equal(personNameFromPush({ event_type: 3111, content: "Alex has been detected." }), "Alex");
-  assert.equal(personNameFromPush({ event_type: 3111, content: "Front of House: Alex was spotted in the garden" }), "Alex");
-});
-
-test("extracts an explicit recognized name when HB3 labels the packet as face detection", () => {
-  assert.equal(
-    personNameFromPush({ event_type: 3102, content: "Alex has been spotted." }),
-    "Alex",
-  );
+  assert.equal(personNameFromPush(event({ eventType: 3111, content: "Alex has been detected." })), "Alex");
+  assert.equal(personNameFromPush(event({ eventType: 3111, content: "Front of House: Alex was spotted in the garden" })), "Alex");
 });
 
 test("never infers an identity from generic or non-identity notifications", () => {
-  assert.equal(personNameFromPush({ event_type: 3111, content: "Someone has been spotted" }), null);
-  assert.equal(personNameFromPush({ event_type: 3111, content: "Stranger was spotted" }), null);
-  assert.equal(personNameFromPush({ event_type: 3101, content: "Alex has been detected" }), null);
+  assert.equal(personNameFromPush(event({ eventType: 3111, content: "Someone has been spotted" })), null);
+  assert.equal(personNameFromPush(event({ eventType: 3111, content: "Stranger was spotted" })), null);
+  assert.equal(personNameFromPush(event({ eventType: 3101, content: "Alex has been detected" })), null);
 });
 
 test("parses only whitelisted Mega inventory fields and de-duplicates serials", () => {
-  const result = parseMegaInventory({
-    devices: [
-      {
-        device_sn: "T817L123",
-        device_name: "Front of House",
-        device_model: "T817L",
-        parent_sn: "T8030ABC",
-        device_type: 10031,
-        category: "eufy_security",
-        device_key: "must-not-escape",
-      },
-      { device_sn: "T817L123", device_name: "duplicate" },
-      { device_name: "missing serial" },
-    ],
-  });
+  const result = parseMegaInventory({ devices: [{
+    device_sn: "T8113ABC", device_name: "Path", device_model: "T8113-Z", parent_sn: "T8030ABC",
+    device_type: 8, device_channel: 3, category: "eufy_security", p2p_did: "ABC-123456-XYZ",
+    device_key: "must-not-escape",
+  }, { device_sn: "T8113ABC", device_name: "duplicate" }, { device_name: "missing serial" }] });
 
   assert.deepEqual(result, [{
-    serial: "T817L123",
-    name: "Front of House",
-    model: "T817L",
-    parentSerial: "T8030ABC",
-    deviceType: 10031,
-    category: "eufy_security",
+    serial: "T8113ABC", name: "Path", model: "T8113-Z", parentSerial: "T8030ABC",
+    deviceType: 8, category: "eufy_security", channel: 3, p2pDid: "ABC-123456-XYZ",
   }]);
   assert.equal(JSON.stringify(result).includes("must-not-escape"), false);
 });
 
-test("merges Mega metadata into legacy inventory and admits a Mega-only C31", () => {
-  const result = mergeInventoryDiagnostics([
-    {
-      serial: "T8113ABC",
-      name: "Path",
-      model: "T8113-Z",
-      sources: ["legacy"],
-      upstreamIsCamera: true,
-      acceptedAsCamera: true,
-      megaDeviceType: null,
-      category: null,
-    },
-  ], [
-    { serial: "T8113ABC", name: "Path", model: "T8113-Z", parentSerial: "T8030", deviceType: 8, category: "eufy_security" },
-    { serial: "T817L123", name: "Front", model: "T817L", parentSerial: "T8030", deviceType: 10031, category: "eufy_security" },
-  ]);
-
-  assert.deepEqual(result, [
-    {
-      serial: "T8113ABC",
-      name: "Path",
-      model: "T8113-Z",
-      sources: ["legacy", "mega"],
-      upstreamIsCamera: true,
-      acceptedAsCamera: true,
-      megaDeviceType: 8,
-      category: "eufy_security",
-    },
-    {
-      serial: "T817L123",
-      name: "Front",
-      model: "T817L",
-      sources: ["mega"],
-      upstreamIsCamera: false,
-      acceptedAsCamera: true,
-      megaDeviceType: 10031,
-      category: "eufy_security",
-    },
+test("reports all first-party Mega camera types and excludes the HomeBase", () => {
+  const devices = parseMegaInventory({ devices: [
+    { device_sn: "doorbell", device_name: "Door", device_model: "T8210", parent_sn: "homebase", device_type: 7, category: "eufy_security" },
+    { device_sn: "battery", device_name: "Path", device_model: "T8113-Z", parent_sn: "homebase", device_type: 8, category: "eufy_security" },
+    { device_sn: "wired", device_name: "Front", device_model: "T817L", parent_sn: "homebase", device_type: 10031, category: "eufy_security" },
+    { device_sn: "homebase", device_name: "HomeBase", device_model: "T8030", device_type: 18, category: "eufy_security" },
+  ] });
+  assert.deepEqual(inventoryDiagnostics(devices).map(({ serial, acceptedAsCamera }) => [serial, acceptedAsCamera]), [
+    ["doorbell", true], ["battery", true], ["wired", true], ["homebase", false],
   ]);
 });

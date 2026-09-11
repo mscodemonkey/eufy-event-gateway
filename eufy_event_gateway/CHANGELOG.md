@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.11
+
+- Use the gateway's first-party Mega authentication, inventory, push, and event-image implementations.
+- Register camera types 7, 8, and 10031 from the current Mega inventory.
+- Migrate an existing authenticated Mega session without retaining the obsolete client dependency.
+- Disable unsupported live-stream actions instead of routing them through the retired legacy API.
+
 ## 0.1.10
 
 - Use the Mega client's supported device-list request instead of an incompatible low-level payload.

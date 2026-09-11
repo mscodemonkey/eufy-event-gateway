@@ -1,6 +1,6 @@
 # Eufy Event Gateway
 
-This app runs the local Eufy gateway beside Home Assistant. It receives Eufy and HomeBase events continuously, retains the last useful camera image, and wakes supported battery cameras only while Home Assistant is viewing them or while a fresh snapshot or timed recording is requested.
+This app runs the local Eufy gateway beside Home Assistant. It signs in through Eufy's current Mega service, receives Eufy and HomeBase events continuously, and retains the last useful camera image.
 
 ## Configuration
 
@@ -15,4 +15,4 @@ The app stores its authenticated Eufy session and retained snapshots in its priv
 
 After the app starts, open **Settings > Devices & services**. Home Assistant should show a discovered **Eufy Event Gateway** integration. Select **Configure** to create its camera and detection entities.
 
-The companion integration exposes `capture_snapshot` and `record_clip` actions. Recordings can be 1 to 120 seconds long and are returned as MP4 files; Home Assistant saves a completed file only after the gateway has finished packaging it.
+The companion integration exposes `capture_snapshot` and `record_clip` actions for cameras with a supported live transport. The first-party Mega provider in v0.1.11 does not yet provide live video, so these actions clearly report that streaming is unsupported.

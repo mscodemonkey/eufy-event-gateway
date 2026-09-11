@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.11
+
+- Replace the obsolete Eufy login and device client with the gateway's own Mega API implementation.
+- Discover HomeBase 3 battery cameras, video doorbells, and T817L cameras directly from Mega inventory.
+- Register and normalize current Eufy push notifications without the `eufy-security-client` runtime dependency.
+- Decode and retain event snapshots using the gateway's own image decoder.
+- Reuse an existing authenticated Mega session during the one-time upgrade, avoiding unnecessary CAPTCHA authentication.
+
 ## 0.1.10
 
 - Fetch the complete Mega camera inventory using the current API's supported device-list request.

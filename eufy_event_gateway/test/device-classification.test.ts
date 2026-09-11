@@ -1,16 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isSupportedCameraDevice, requiresPushFallback } from "../src/provider/eufy-provider.js";
+import { isSupportedMegaCamera } from "../src/provider/eufy-provider.js";
 
-test("recognizes upstream cameras and the not-yet-classified Wired Cam C31", () => {
-  assert.equal(isSupportedCameraDevice(true, "T8113-Z", "T8113N123"), true);
-  assert.equal(isSupportedCameraDevice(false, "T817L", "T817LT123"), true);
-  assert.equal(isSupportedCameraDevice(false, "unknown", "T817LT123"), true);
-  assert.equal(isSupportedCameraDevice(false, "T8920", "T8920P123"), false);
-});
-
-test("keeps direct push handling for a C31 the legacy client exposes only as a generic device", () => {
-  assert.equal(requiresPushFallback(false, "T817L", "T817LT123"), true);
-  assert.equal(requiresPushFallback(true, "T8113-Z", "T8113N123"), false);
+test("recognizes the security camera types present in Mega inventory", () => {
+  assert.equal(isSupportedMegaCamera({ category: "eufy_security", deviceType: 7 }), true);
+  assert.equal(isSupportedMegaCamera({ category: "eufy_security", deviceType: 8 }), true);
+  assert.equal(isSupportedMegaCamera({ category: "eufy_security", deviceType: 10031 }), true);
+  assert.equal(isSupportedMegaCamera({ category: "eufy_security", deviceType: 18 }), false);
+  assert.equal(isSupportedMegaCamera({ category: "eufy_clean", deviceType: 8 }), false);
 });
