@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.21
+
+- Register Mega inventory type 23 after an EufyCam T8161 installation reported a complete HomeBase/PPCS stream path but was excluded only by camera classification.
+
 ## 0.1.20
 
 - Remove the unused Web Portal/WebRTC, Thing/MQTT, and experimental native-relay code paths and their dependencies.

@@ -107,7 +107,7 @@ member.admin_user_id -> adminUserId
 
 `parseMegaInventory()` rejects rows without a serial, removes duplicate serials, bounds text fields, and fills absent values with `null` or safe defaults. If a child camera has no `admin_user_id`, it inherits the parent station's value because the HomeBase media request is account-scoped.
 
-The current camera filter accepts Mega device types 7, 8, 19, 31, 91, and 10031 when `category` is `eufy_security`. Type 18 is a HomeBase parent and remains in the provider map, but it is not registered as a Home Assistant camera. This distinction prevents a blank HomeBase tile from being mistaken for a second camera.
+The current camera filter accepts Mega device types 7, 8, 19, 23, 31, 91, and 10031 when `category` is `eufy_security`. Type 18 is a HomeBase parent and remains in the provider map, but it is not registered as a Home Assistant camera. This distinction prevents a blank HomeBase tile from being mistaken for a second camera.
 
 The normalized provider row is converted into `CameraIdentity`, which is the first shape that the protocol-neutral domain and Home Assistant can consume. Raw Mega keys and payload fields stop at this boundary.
 

@@ -420,6 +420,7 @@ export function isSupportedMegaCamera(device: Pick<MegaInventoryDevice, "categor
     && (device.deviceType === 7
       || device.deviceType === 8
       || device.deviceType === 19
+      || device.deviceType === 23
       || device.deviceType === 31
       || device.deviceType === 91
       || device.deviceType === 10031);

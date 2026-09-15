@@ -64,13 +64,14 @@ test("reports all first-party Mega camera types and excludes the HomeBase", () =
     { device_sn: "doorbell", device_name: "Door", device_model: "T8210", parent_sn: "homebase", device_type: 7, category: "eufy_security" },
     { device_sn: "battery", device_name: "Path", device_model: "T8113-Z", parent_sn: "homebase", device_type: 8, category: "eufy_security" },
     { device_sn: "s330", device_name: "Garden", device_model: "T8160", parent_sn: "homebase", device_type: 19, category: "eufy_security" },
+    { device_sn: "s300", device_name: "Side", device_model: "T8161", parent_sn: "homebase", device_type: 23, category: "eufy_security" },
     { device_sn: "indoor", device_name: "Indoor", device_model: "T8410", parent_sn: "homebase", device_type: 31, category: "eufy_security" },
     { device_sn: "new-doorbell", device_name: "Front", device_model: "T8213", parent_sn: "homebase", device_type: 91, category: "eufy_security" },
     { device_sn: "wired", device_name: "Front", device_model: "T817L", parent_sn: "homebase", device_type: 10031, category: "eufy_security" },
     { device_sn: "homebase", device_name: "HomeBase", device_model: "T8030", device_type: 18, category: "eufy_security" },
   ] });
   assert.deepEqual(inventoryDiagnostics(devices).map(({ serial, acceptedAsCamera }) => [serial, acceptedAsCamera]), [
-    ["doorbell", true], ["battery", true], ["s330", true], ["indoor", true],
+    ["doorbell", true], ["battery", true], ["s330", true], ["s300", true], ["indoor", true],
     ["new-doorbell", true], ["wired", true], ["homebase", false],
   ]);
 });
